@@ -15,7 +15,10 @@
   (println m)
   (if (instance? Throwable result)
     (throw result)
-    (ct/is result)))
+    (if result
+      (doto {:actual result, :type :pass, :message nil, :expected 'result}
+        ct/report)
+      {:actual result, :type :fail, :message nil, :expected 'result})))
 
 (def ^:dynamic *default-test-count* 100)
 
@@ -131,13 +134,13 @@
   [property-fun result trial-number failing-params]
   ;; TODO this is wrong, makes it impossible to clojure.test quickchecks that
   ;; should fail...
-  #_(ct/report (if (instance? Throwable result)
-                 {:type :error
-                  :message (.getMessage result)
-                  :actual result}
-                 {:type :fail
-                  :expected true
-                  :actual result}))
+  (ct/report (if (instance? Throwable result)
+               {:type :error
+                :message (.getMessage result)
+                :actual result}
+               {:type :fail
+                :expected true
+                :actual failing-params}))
   (ct/report {:type ::shrinking
               ::property property-fun
               ::params (vec failing-params)}))
