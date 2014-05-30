@@ -31,6 +31,22 @@
   [value]
   (and value (not (instance? Throwable value))))
 
+(defn- quick-check-seq* [property rng size-seq]
+  (lazy-seq
+   (let [[size & rest-size-seq] size-seq
+         result-map-rose (gen/call-gen property rng size)
+         {:keys [result args] :as result-map} (rose/root result-map-rose)]
+     (cons result-map-rose ; do we need any extra info here? seed?
+           (when (not-falsey-or-exception? result)
+             (quick-check-seq* property rng rest-size-seq))))))
+
+(defn quick-check-seq
+  {:arglists '([property & more])}
+  [property & {:keys [seed max-size] :or {max-size 200}}]
+  (let [[created-seed rng] (make-rng seed)
+        size-seq (gen/make-size-range-seq max-size)]
+    (quick-check-seq* property rng size-seq)))
+
 (defn quick-check
   "Tests `property` `num-tests` times.
   Takes optional keys `:seed` and `:max-size`. The seed parameter
@@ -46,23 +62,22 @@
       (def p (for-all [a gen/pos-int] (> (* a a) a)))
       (quick-check 100 p)
   "
+  {:arglists '([property & more])}
   [num-tests property & {:keys [seed max-size] :or {max-size 200}}]
-  (let [[created-seed rng] (make-rng seed)
-        size-seq (gen/make-size-range-seq max-size)]
-    (loop [so-far 0
-           size-seq size-seq]
-      (if (== so-far num-tests)
-        (complete property num-tests created-seed)
-        (let [[size & rest-size-seq] size-seq
-              result-map-rose (gen/call-gen property rng size)
-              result-map (rose/root result-map-rose)
-              result (:result result-map)
-              args (:args result-map)]
-          (if (not-falsey-or-exception? result)
-            (do
-              (ct/report-trial property so-far num-tests)
-              (recur (inc so-far) rest-size-seq))
-            (failure property result-map-rose so-far size created-seed)))))))
+
+  (loop [so-far 0
+         trials (take num-tests
+                         (quick-check-seq property :seed seed :max-size max-size))]
+    (if-not trials
+      (complete property num-tests 0) ;; FIXME: created-seed
+      (let [[trial & rest-trials] trials
+            {:keys [result args] :as result-map} (rose/root trial)]
+        (if (not-falsey-or-exception? result)
+          (do
+            (ct/report-trial property so-far num-tests)
+            (recur (inc so-far) rest-trials))
+          (failure property trial so-far 0 0)))))) ;; FIXME: size and created-seed?
+
 
 (defn- smallest-shrink
   [total-nodes-visited depth smallest]
