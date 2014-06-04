@@ -65,19 +65,26 @@
   {:arglists '([property & more])}
   [num-tests property & {:keys [seed max-size] :or {max-size 200}}]
 
-  (loop [so-far 0
-         trials (take num-tests
-                         (quick-check-seq property :seed seed :max-size max-size))]
-    (if-not trials
-      (complete property num-tests 0) ;; FIXME: created-seed
-      (let [[trial & rest-trials] trials
-            {:keys [result args] :as result-map} (rose/root trial)]
-        (if (not-falsey-or-exception? result)
-          (do
-            (ct/report-trial property so-far num-tests)
-            (recur (inc so-far) rest-trials))
-          (failure property trial so-far 0 0)))))) ;; FIXME: size and created-seed?
+  (or
+   (reduce (fn [state trial]
+             (let [{:keys [result args] :as result-map} (rose/root trial)]
+               (if (not-falsey-or-exception? result)
+                 (do
+                   (ct/report-trial property 0 num-tests) ;; FIXME: so-far
+                   nil)
+                 (reduced
+                  (failure property trial 0 0 0) ;; FIXME: so-far, size and created-seed?
+                  ))))
+           nil
+           (take num-tests
+                 (quick-check-seq property :seed seed :max-size max-size)))
+   (complete property num-tests 0)) ;; FIXME: created-seed
+)
 
+
+(comment
+  (quick-check 100 (clojure.test.check.properties/for-all [i clojure.test.check.generators/int] (even? i)))
+)
 
 (defn- smallest-shrink
   [total-nodes-visited depth smallest]
